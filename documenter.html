@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>HTML 5 Boilerplate</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+	<style>
+        :root{
+            --radius: 10px;
+        }
+        label{
+            display:block;
+            margin-bottom:20px;
+        }
+        .error{
+            color:firebrick;
+        }
+        .container{
+            max-width: 80ch;
+            margin:auto;
+            line-height: 120%;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+        :checked + span{
+            text-decoration: line-through;
+            color:#aaa;
+        }
+        form{
+            border:solid 1px #ccc;
+            border-radius: var(--radius);
+            padding:20px;
+            font-size:20px;
+            margin-top:40px;
+        }
+        button[type=submit]{
+            width:150px;
+            text-align: center;
+            border-radius: var(--radius);
+            background-color: hsl(137deg 56% 41%);
+            color:#fff;
+            padding:10px;
+            cursor: pointer;
+            border:0;
+        }
+
+        li label{
+            margin-bottom:10px;
+            cursor: pointer;
+        }
+
+        #resultsSummary{
+            padding:20px 0;
+        }
+        #resultsSummary h2 span{
+            text-decoration: underline;
+        }
+        .result{
+            padding:5px 20px;
+            border-radius: var(--radius);
+        }
+        .result:nth-child(odd){
+            padding:5px 20px;
+            background: hsl(137deg 56% 95%)
+        }
+        .result ul{
+            list-style: none;
+            padding-left: 0;
+        }
+    </style>
+    <script>
+        $(document).ready(function () {
+			var file=null;
+
+            $("#search").on('submit', function(e){
+                e.preventDefault();
+                var selectedFile = document.getElementById('docpicker').files[0];
+                var reader = new FileReader();
+                $("#results").text('');
+                if(!selectedFile){
+                    $("#resultsSummary").append('<h2 class="error">Please Select File To Search</h2>');
+                    $('#docpicker').focus();
+                    return;
+                }
+                reader.onload = function(e) {
+                    var file=e.target.result;
+                    var json = JSON.parse(file);
+
+					var header = $('<div/>');
+					var attributeNav = $('<ul/>');
+					var regionNav = $('<ul/>');
+					var contents = $('<div/>');
+
+					$(header).append(`
+						<h1>${json.name}</h1>
+						<p>${json.description}</p>
+					`)
+
+					// Attributes
+					$(contents).append('<h2>Attributes</h2>');
+					json.attribute_definition_groups.forEach(function (group) {
+						$(contents).append(`
+							<h3>${group.name}</h3>
+							<p>${group.description}</p>
+						`)
+						group.attribute_definitions.forEach(function (attr) {
+							var required = attr.required ? "Yes" : "No";
+							$(attributeNav).append('<li><a href="#'+attr.id +'">'+attr.name+'</a></li>');
+
+							$(contents).append(`
+								<h4 id="${attr.id}">${attr.name}</h4>
+								<p>${attr.description}</p>
+								<p>
+									<strong>Required:</strong> ${required}<br/>
+									<strong>Field Type:</strong> ${attr.type}<br/>
+								</p>
+							`);
+							
+							if(attr.type == "enum"){
+								var options = '<p><strong>Options:</strong></p><ul>';
+								attr.values.forEach(function (value) {
+									if(value == attr.default_value){
+										options += '<li><strong>' + value + ' (Default)</strong></li>';    
+									} else {
+										options += '<li>' + value + '</li>';
+									}
+								});
+								options += '</ul>';
+								$(contents).append(options);
+							}
+							$(contents).append('<hr/>');
+						});
+					});
+
+					// Regions
+					$(contents).append('<h2>Regions</h2>');
+					json.region_definitions.forEach(function (region) {
+						$(contents).append(`
+							<h3 id="${region.id}">${region.name}</h2>
+							<p>${region.description}</p>
+							<p><strong>Max Components:</strong> ${region.max_components}</p>
+						`)
+						$(regionNav).append('<li><a href="#'+region.id +'">'+region.name+'</a></li>');
+					});
+
+					var results = $('#results');
+					results.append(header);
+					results.append('<h2>Attributes</h2>');
+					results.append(attributeNav);
+					results.append('<h2>Regions</h2>');
+					results.append(regionNav);
+					results.append(contents);
+                }
+                reader.readAsText(selectedFile);
+            });
+        });
+    </script>
+</head>
+  <body>
+	<div class="container">
+        <h1>Page Designer Documenter</h1>
+        <p>
+           This reads the JSON definition file for a component and spits out a starting place for our confluence documention.
+        </p>
+		<p>
+			Once Generated, copy all of the content spit onto the page and paste onto a conflunce page, the html should work well there.
+		</p>
+        <form id="search" method="get">
+            <label>
+                Component JSON: 
+                <input type="file" id="docpicker" accept=".json"/>
+            </label>
+            <button type="submit">Generate</button>
+        </form>
+        <div id="results"></div>
+    </div>
+  </body>
+</html>

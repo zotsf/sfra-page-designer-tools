@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>HTML 5 Boilerplate</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js" integrity="sha512-894YE6QWD5I59HgZOGReFYm4dnWc1Qt5NtvYSaNcOP+u1T9qYdvdihz0PPSiiqn/+/3e7Jo4EaG7TubfWGUrMQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+    <script>
+        var $content;
+        var doc;
+
+        function search(e, term){
+            if($(e).text().includes(term)){
+                return true;
+            }
+            return false;
+        }
+
+        function getFamilyTree($content, tree){
+            var contentType = $content.find('type').text();
+            var contentDisplayName = $content.find('display-name').text();
+            var contentOnlineUS = $content.find('online-flag[site-id="USPXG"]').text();
+            var contentOnlineCA = $content.find('online-flag[site-id="CAPXG"]').text();
+            var cid = $content.attr('content-id');
+            var sandbox = $content.find('classification-link[folder-id="sandbox"]');
+            var info = {
+                id: cid,
+                type: contentType,
+                name: contentDisplayName ? contentDisplayName : '',
+                online: contentOnlineUS === 'true' || contentOnlineCA === 'true',
+                sandbox: sandbox.length > 0 ? true : false
+            }
+            tree.push(info);
+            var clink = $(doc).find('content-link[content-id="' + cid + '"]').first();
+            if(clink.length){
+                var $parentContent = clink.parents('content').first();
+                getFamilyTree($parentContent, tree);
+            }
+            return tree;
+        }
+
+        $(document).ready(function(){
+            var readXml=null;
+
+            var deprecated = [
+                'component.commerce_assets.gridColumn',
+                'component.commerce_assets.gridFullItemQuarter',
+                'icomponent.commerce_assets.mageTile',
+                'component.commerce_layouts.bannerTwoColumnLayout',
+                'component.commerce_layouts.gridBlock',
+                'component.commerce_layouts.gridFlexBlock',
+                'component.commerce_layouts.gridFullBlock'
+            ]
+
+            $("#search").on('submit', function(e){
+                e.preventDefault();
+                $("#submitButton").prop('disabled', true);
+                $("#submitButton").text('Working...');
+                var selectedFile = document.getElementById('docpicker').files[0];
+                var reader = new FileReader();
+                $("#results, #resultsSummary .summary").text('');
+                if(!selectedFile){
+                    $("#resultsSummary .summary").append('<h2 class="error">Please Select File To Search</h2>');
+                    $('#docpicker').focus();
+                    return;
+                }
+                reader.onload = function(e) {
+                    readXml=e.target.result;
+                    var parser = new DOMParser();
+                    var now = Date.now();
+                    doc = parser.parseFromString(readXml, "application/xml");
+                    $content = $(doc).find('content');
+
+                    var resultsObj = {};
+
+                    //$configAndData = $data.add($configs);
+                    $content.each(function(){
+                        var contentType = $(this).find('type').text();
+                        if(contentType.includes('component.')){
+                            if(resultsObj.hasOwnProperty(contentType)){
+                                resultsObj[contentType].count++;
+                            } else{
+                                var startingObject = {
+                                    type:contentType.substring(10),
+                                    count: 1,
+                                    onlinePageArray: [],
+                                    onlinePageArrayExpired: [],
+                                    offlinePageArray: [],
+                                    sandboxPageArray: []
+                                }
+                                resultsObj[contentType] = startingObject;
+                            }
+                            var tree = getFamilyTree($(this), []);
+                            var reverseTree = tree.reverse();
+                            var pageType = reverseTree[0].type;
+                            // Check that this component exists on a page, and isn't an orphan element that can exist in these PD exports
+                            if(pageType.includes("page.")){
+                                var pageName = reverseTree[0].name;
+                                pageName += reverseTree[0].online ? '' : ' (Offline)';
+                                pageName += reverseTree[0].sandbox ? '' : ' (Sandbox)';
+
+                                var configText = $(this).find('config').text();
+                                var configJSON = JSON.parse(configText);
+                                var isExpired = false;
+                                // if is online and is not sandbox and has visibility rule set then check to see if is visible.
+                                if(reverseTree[0].online && !reverseTree[0].sandbox && configJSON.visibility.length > 0 && configJSON.visibility[0].schedule && configJSON.visibility[0].schedule.valid_to){
+                                    var validTo = configJSON.visibility[0].schedule.valid_to;
+                                    var checkDate = Date.parse(validTo);
+                                    isExpired = checkDate < now;
+                                    if(configJSON.visibility.length > 1){
+                                        console.log(configText);
+                                    }
+                                }
+
+                                if(!reverseTree[0].online){
+                                    resultsObj[contentType]['offlinePageArray'].push(pageName);
+                                } else if(reverseTree[0].sandbox){
+                                    resultsObj[contentType]['sandboxPageArray'].push(pageName);
+                                } else if (isExpired){
+                                    resultsObj[contentType]['onlinePageArrayExpired'].push(pageName);
+                                } else{
+                                    resultsObj[contentType]['onlinePageArray'].push(pageName);
+                                }
+                            }
+                        }
+                    });
+                    if(Object.keys(resultsObj).length === 0){
+                        $("#resultsSummary .summary").append('<h2>No Components Found</h2>');
+                    } else{
+                        var componentCount = 0;
+                        for (const type in resultsObj) {
+                            componentCount++;
+                            var $result = $('<tr class="result"></tr>');
+                            var online = resultsObj[type].onlinePageArray.length;
+                            var onlineExpired = resultsObj[type].onlinePageArrayExpired.length;
+                            var onlineSandbox = resultsObj[type].sandboxPageArray.length;
+                            var offline = resultsObj[type].offlinePageArray.length;
+                            $result.append(`
+                                    <td>${resultsObj[type].type}</td>
+                                    <td>${resultsObj[type].count}</td>
+                                    <td>${online} </td>
+                                    <td>${onlineExpired} </td>
+                                    <td>${onlineSandbox} </td>
+                                    <td>${offline}</td>
+                            `);
+                            if(online < 5){
+                                $result.addClass('info');
+                            }
+                            if(online == 0){
+                                $result.addClass('warning');
+                            }
+                            if(deprecated.includes(type)){
+                                $result.addClass('error');
+                            }
+                            $("#results").append($result);
+                        }
+                        $("#resultsSummary .summary").append(`<h2><span>${componentCount}</span> Component Types Found</h2>`);
+                        $("#resultsSummary").show();
+                        $("#submitButton").prop('disabled', false);
+                        $("#submitButton").text('Process');
+                        $("#resultsTable").show();
+                    }
+                }
+                reader.readAsText(selectedFile);
+            });
+        });
+    </script>
+
+    <style>
+        :root{
+            --radius: 10px;
+        }
+        label{
+            display:block;
+            margin-bottom:20px;
+        }
+        .error{
+            color:firebrick;
+        }
+        .container{
+            max-width: 80ch;
+            margin:auto;
+            line-height: 120%;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+        form{
+            border:solid 1px #ccc;
+            border-radius: var(--radius);
+            padding:20px;
+            font-size:20px;
+            margin-top:40px;
+        }
+        button[type=submit]{
+            width:150px;
+            text-align: center;
+            border-radius: var(--radius);
+            background-color: hsl(137deg 56% 41%);
+            color:#fff;
+            padding:10px;
+            cursor: pointer;
+            border:0;
+        }
+        button[type=submit]:disabled{
+            width:150px;
+            text-align: center;
+            border-radius: var(--radius);
+            background-color: hsl(137deg 0% 41%);
+            color:#000;
+            padding:10px;
+            cursor: not-allowed;
+            border:0;
+        }
+
+        li label{
+            margin-bottom:10px;
+            cursor: pointer;
+        }
+
+        #resultsSummary{
+            padding:20px 0;
+            display: none;
+        }
+        #resultsSummary h2 span{
+            text-decoration: underline;
+        }
+        #resultsTable{
+            display: none;
+        }
+        
+        /* Default Table Style */
+        table {
+            color: #333;
+            background: white;
+            border: 1px solid grey;
+            font-size: 12pt;
+            border-collapse: collapse;
+        }
+        table thead th,
+        table tfoot th {
+            color: #777;
+            background: rgba(0,0,0,.1);
+        }
+        table th,
+        table td {
+            padding: .5em;
+            border: 1px solid lightgrey;
+        }
+        /* Zebra Table Style */
+        tbody tr:nth-of-type(even) {
+            background: rgba(0,0,0,.05);
+        }
+        tbody tr:nth-of-type(odd) {
+            background: rgba(255,255,255,.05);
+        }
+        tbody tr.info {
+            background: hsla(222, 69%, 67%, 0.5);
+        }
+        tbody tr.warning {
+            background: hsla(45, 69%, 67%, 0.5);
+        }
+        tbody tr.error {
+            background: hsla(4, 69%, 67%, 0.5);
+        }
+    </style>
+
+  </head>
+  <body>
+      <div class="container">
+        <h1>Page Designer Component Usage Analysis</h1>
+        <ol>
+            <li>Export Content from staging (Merchant Tools -> Content -> Import Export -> Libraries -> Export</li>
+            <li>Choose "PXGSharedLibrary" pick a name and click export</li>
+            <li>Download exported file</li>
+            <li>Open Exported File using the file selector below</li>
+            <li>Click Process</li>
+        </ol>
+        <p>
+            The content returned will be ordered by page, each component that the search term was found in will be listed under the page name
+            that it was found on. If you have trouble finding the component the title element is set to show the ancestry of the component, so
+            hover on the component name to get the full path to it.
+        </p>
+        <p>The checkboxes are there as an aid so you can check off the instances that you've dealt with.Use the checkboxes to mark off instances that you've dealt with.</p>
+        <form id="search" method="get">
+            <label>
+                Content Export XML: 
+                <input type="file" id="docpicker" accept=".xml"/>
+            </label>
+            <button type="submit" id="submitButton">Process</button>
+        </form>
+        <div id="resultsSummary">
+            <div class="summary"></div>
+            <strong>Key</strong>
+            <table>
+                <tbody>
+                    <tr><td>Normal Usage</td></tr>
+                    <tr class="info"><td>Low Online Usage</td></tr>
+                    <tr class="warning"><td>No Online Usage</td></tr>
+                    <tr class="error"><td>Component has been deprecated and should be replaced</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <table id="resultsTable">
+            <thead>
+                <tr>
+                    <th>Type</th>
+                    <th>Total Usage</th>
+                    <th>Online Usage</th>
+                    <th>Online Expired Usage</th>
+                    <th>Online Sandbox Usage</th>
+                    <th>Offline Usage</th>
+                </tr>
+            </thead>
+            <tbody id="results"></tbody>
+            <tfoot>
+                <tr>
+                    <th>Type</th>
+                    <th>Total Usage</th>
+                    <th>Online Usage</th>
+                    <th>Online Expired Usage</th>
+                    <th>Online Sandbox Usage</th>
+                    <th>Offline Usage</th>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+  </body>
+</html>
